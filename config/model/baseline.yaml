@@ -1,0 +1,34 @@
+# Baseline tier hyperparameters. These are the mandatory skill references every
+# model must beat. See ARCHITECTURE.md (e.2) + R3 §1.
+
+name: baseline
+
+persistence:
+  # yhat(t+h) = y(t); no parameters.
+  enabled: true
+
+climatology:
+  # mean log-flux per (local-time bin, Kp bin, day-of-year bin) from TRAIN only.
+  enabled: true
+  n_tod_bins: 24                 # hourly local-time bins
+  n_kp_bins: 10                  # Kp 0..9
+  n_doy_bins: 24                 # ~biweekly day-of-year bins
+
+lightgbm:
+  # Strongest non-DL baseline; one model per horizon (direct). Feature-importance oracle.
+  enabled: true
+  n_estimators: 500
+  learning_rate: 0.05
+  num_leaves: 63
+  max_depth: -1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 50
+  objective: regression          # quantile heads fit per-tau separately
+  random_state: 1993
+
+refm:
+  # NOAA-REFM-style linear prediction filter on Vsw history. The operational benchmark.
+  enabled: true
+  vsw_history_steps: 8640        # 30 days at 5-min
+  ridge_alpha: 1.0

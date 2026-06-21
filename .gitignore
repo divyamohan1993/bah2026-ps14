@@ -1,0 +1,67 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+.installed.cfg
+pip-wheel-metadata/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Testing / coverage / typing caches ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Experiment tracking ---
+mlruns/
+wandb/
+
+# --- Data (do NOT commit downloaded/derived data, but keep the folders) ---
+data/raw/*
+data/interim/*
+data/processed/*
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+# Keep small synthetic sample CDFs committed under data/raw/synthetic if explicitly added.
+!data/raw/synthetic/
+data/manifest.csv
+
+# --- CDF files: ignore everything except synthetic samples ---
+*.cdf
+!data/raw/synthetic/**/*.cdf
+
+# --- Models / trained artifacts ---
+models/*
+!models/.gitkeep
+*.pt
+*.pth
+*.onnx
+*.joblib
+*.ckpt
+
+# --- Reports (regenerable) ---
+reports/*
+!reports/.gitkeep
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp

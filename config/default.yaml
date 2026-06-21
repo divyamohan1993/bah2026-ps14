@@ -1,0 +1,103 @@
+# PS-14 default configuration. Loaded + validated by ps14.config.Settings (pydantic).
+# All steps are in 5-minute units unless stated. See ARCHITECTURE.md (j) + CONTRACTS.md.
+
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  data_processed: data/processed
+  models: models
+  reports: reports
+
+data:
+  # Dataset IDs / endpoints. Used by the optional real downloaders; the synthetic
+  # generator ignores these and writes to data/raw/synthetic.
+  sources:
+    goes_target: DN_SEIS-L2-MPSH_G18      # GOES-R SEISS MPS-HI >2 MeV (target)
+    goes_legacy: GOES15_EPS-EPEAD_1MIN    # legacy EPEAD E2 >2 MeV
+    omni_drivers: OMNI_HRO_1MIN           # merged, bow-shock-shifted driver matrix
+    wind_backup_swe: WI_H1_SWE            # raw L1 plasma (sensitivity studies)
+    wind_backup_mfi: WI_H0_MFI            # raw L1 IMF
+    grasp_val: GRASP_GSAT                 # ISRO cross-validation (held out)
+    swpc_realtime_electrons: "https://services.swpc.noaa.gov/json/goes/primary/integral-electrons-1-day.json"
+    swpc_realtime_plasma: "https://services.swpc.noaa.gov/products/solar-wind/plasma-5-minute.json"
+    swpc_realtime_mag: "https://services.swpc.noaa.gov/products/solar-wind/mag-5-minute.json"
+    swpc_realtime_kp: "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
+    swpc_realtime_alerts: "https://services.swpc.noaa.gov/products/alerts.json"
+  time_range:
+    start: "2014-01-01"
+    end: "2025-01-01"
+  satellites: [GOES-16, GOES-17, GOES-18]
+
+synthetic:
+  start: "2014-01-01"
+  end: "2025-01-01"
+  cadence: "5min"
+  seed: 1993
+  baseline_vsw_kms: 400.0
+  hss_recurrence_days: 27.0
+  n_cme_per_year: 12
+  vsw_to_flux_lag_days: 1.5      # 1-2 day acceleration lag (R1)
+  diurnal_amplitude_dex: 0.5     # ~1 order of magnitude peak-to-peak
+  gap_fraction: 0.03             # fraction of samples set to NaN (mix of short/long)
+  spike_fraction: 0.002          # fraction of samples spiked (despike target)
+
+preprocess:
+  cadence: "5min"
+  hampel:
+    window: 7
+    n_sigma: 3.0
+    replace: nan                 # 'nan' (let gap logic decide) | 'median'
+  gaps:
+    max_gap_steps: 6             # 30 min; longer runs stay NaN
+  log_floor_pfu: 0.01
+  l1_to_geo:
+    method: omni_preshifted      # 'omni_preshifted' | 'ballistic'
+    target_distance_re: 0.0      # extra bow-shock-nose -> GEO transit if desired
+
+features:
+  lookback_steps: 1152           # 4 days at 5-min
+  lags_steps: [1, 6, 72, 288, 576]
+  roll_windows: [12, 72, 288, 576]
+  coupling: [vbs, newell, epsilon]
+  difference_target: false       # if true, model d(log_flux) to remove diurnal/27-day
+
+model:
+  name: tft                      # tft|nhits|foundation|persistence|climatology|lightgbm|refm
+  horizons_steps:
+    nowcast: 8                   # ~40 min (30-45 min band)
+    "6h": 72
+    "12h": 144
+  decoder_steps: 144             # full 12 h MIMO decoder
+  quantiles: [0.1, 0.5, 0.9]
+
+thresholds:
+  harsh_pfu: 1000.0
+  sustained_periods: 3           # NOAA: >=3 consecutive 5-min readings
+  exceedance_loss_weight: 1.0    # lambda for the focal-BCE head
+
+split:
+  mode: chronological
+  train: 0.70
+  val: 0.15
+  test: 0.15
+  embargo_steps: 1296            # >= lookback + max horizon
+
+serving:
+  refresh_seconds: 60
+  poll:
+    electrons: 60
+    solar_wind: 60
+    kp: 600
+  cache: dict                    # dict | redis
+  redis_url: "redis://localhost:6379/0"
+  cache_decimals: 3
+  onnx:
+    threads_intra: 2
+    threads_inter: 1
+    opt_level: all
+  source: synthetic              # synthetic | swpc
+  host: "0.0.0.0"
+  port: 8000
+
+seed: 1993
+log_level: INFO
