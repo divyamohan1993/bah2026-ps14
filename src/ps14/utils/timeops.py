@@ -93,37 +93,79 @@ def ballistic_lag_minutes(
     return lag_min
 
 
+# Earth radius [km] — used to convert the optional bow-shock-nose -> GEO transit distance.
+EARTH_RADIUS_KM: float = 6371.0
+
+
 def shift_l1_to_geo(
     df: pd.DataFrame,
     *,
     method: str = "omni_preshifted",
     vsw_col: str = "vsw",
     target_distance_re: float = 0.0,
-) -> pd.DataFrame:
-    """Shift an L1 driver frame forward in time toward the magnetosphere.
+    cadence: str | None = None,
+    return_lag: bool = False,
+) -> pd.DataFrame | np.ndarray:
+    """Shift an L1 driver frame forward in time toward the magnetosphere (R5 §5.1).
+
+    Applies the physical L1 -> bow-shock-nose/GEO propagation lag so that each solar-wind
+    sample is stamped with the (later) time it reaches the magnetosphere. The ballistic
+    lag is ``dt = dx / Vsw`` (~20-90 min; reuses :func:`ballistic_lag_minutes`); the
+    propagation distance is the L1 Sun-Earth-line distance plus an optional
+    bow-shock-nose -> GEO transit term (``target_distance_re`` Earth radii).
 
     Parameters
     ----------
     df:
         L1 driver frame indexed by UTC time.
     method:
-        ``'omni_preshifted'`` (no-op; OMNI already bow-shock-shifted) or ``'ballistic'``
-        (apply a per-sample ``dx/Vsw`` shift using ``vsw_col``).
+        ``'omni_preshifted'`` (no-op pass-through; OMNI HRO is already bow-shock-shifted)
+        or ``'ballistic'``/``'omni'`` aliases. ``'ballistic'`` applies a per-sample
+        ``dx/Vsw`` shift using ``vsw_col``; ``'omni'`` is treated as pre-shifted.
     vsw_col:
-        Column holding solar-wind speed (for the ballistic method).
+        Column holding solar-wind speed [km/s] (for the ballistic method).
     target_distance_re:
-        Extra bow-shock-nose -> GEO transit distance in Earth radii (optional).
+        Extra bow-shock-nose -> GEO transit distance in Earth radii (optional, added to the
+        ~1.5e6 km L1 distance before dividing by Vsw).
+    cadence:
+        If given (e.g. ``"5min"``), the time-shifted ballistic series is re-gridded back
+        onto a uniform grid at this cadence (mean within bin) so the result stays on the
+        canonical index (CONTRACTS.md §2). Ignored for the pre-shifted no-op.
+    return_lag:
+        If True (ballistic only), return the per-row lag in **minutes** as an ``np.ndarray``
+        instead of the shifted frame.
 
     Returns
     -------
-    pd.DataFrame
-        The frame with a shifted index (and re-gridded to the original cadence by the
-        caller). Raises for unknown methods.
+    pd.DataFrame | np.ndarray
+        The frame with a forward-shifted (and optionally re-gridded) index, or — when
+        ``return_lag`` is True — the per-sample lag in minutes. Raises for unknown methods.
     """
-    raise NotImplementedError(
-        "TODO: implement OMNI no-op pass-through and the ballistic per-sample shift; "
-        "re-grid onto the canonical 5-min index after shifting (see CONTRACTS.md §2)."
-    )
+    if method in ("omni_preshifted", "omni"):
+        # OMNI HRO is already convected to the bow-shock nose (PFN method); no-op.
+        return df.copy()
+    if method != "ballistic":
+        raise ValueError(
+            f"method must be 'omni_preshifted', 'omni', or 'ballistic', got {method!r}"
+        )
+
+    if vsw_col not in df.columns:
+        raise KeyError(f"ballistic shift requires speed column {vsw_col!r}")
+
+    distance_km = L1_TO_EARTH_KM + float(target_distance_re) * EARTH_RADIUS_KM
+    lag_min = ballistic_lag_minutes(df[vsw_col].to_numpy(), distance_km=distance_km)
+    if return_lag:
+        return lag_min
+
+    shifted = df.copy()
+    shifted.index = df.index + pd.to_timedelta(lag_min, unit="m")
+    shifted = shifted[~shifted.index.duplicated(keep="last")].sort_index()
+
+    if cadence is not None:
+        shifted = shifted.resample(cadence).mean().asfreq(cadence)
+        shifted.index.name = df.index.name
+
+    return shifted
 
 
 __all__ = [
@@ -134,4 +176,5 @@ __all__ = [
     "ballistic_lag_minutes",
     "shift_l1_to_geo",
     "L1_TO_EARTH_KM",
+    "EARTH_RADIUS_KM",
 ]

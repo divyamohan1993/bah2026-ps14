@@ -92,10 +92,68 @@ def make_supervised(
     WindowTensors
         The stacked arrays + metadata.
     """
-    raise NotImplementedError(
-        "TODO: slide t over [lookback-1, n - decoder_steps); X = F[t-lookback+1:t+1]; "
-        "Xf = KF[t+1:t+1+decoder_steps]; y[h] = target[t + horizon_steps[h]]; "
-        "y_exceed = (y >= log_harsh); drop NaN windows; stack to float32 (CONTRACTS.md §4)."
+    if horizon_steps is None:
+        horizon_steps = HORIZON_STEPS
+    horizon_names = list(horizon_steps.keys())
+    offsets = np.asarray([horizon_steps[h] for h in horizon_names], dtype="int64")
+
+    feat = df.loc[:, feature_cols].to_numpy(dtype="float32")
+    kf = df.loc[:, known_future_cols].to_numpy(dtype="float32")
+    target = df[target_col].to_numpy(dtype="float32")
+    index = df.index.to_numpy()
+
+    n = len(df)
+    # Need [t+1 .. t+decoder_steps] for X_future and t+max(offset) for y.
+    max_future = int(max(decoder_steps, int(offsets.max(initial=0))))
+    last_t = n - 1 - max_future  # inclusive
+
+    x_list: list[np.ndarray] = []
+    xf_list: list[np.ndarray] = []
+    y_list: list[np.ndarray] = []
+    yexc_list: list[np.ndarray] = []
+    t_list: list[np.datetime64] = []
+
+    for t in range(lookback - 1, last_t + 1):
+        x = feat[t - lookback + 1 : t + 1]  # [L, F], only up to and incl. t
+        xf = kf[t + 1 : t + 1 + decoder_steps]  # [H, F_kf], strictly future
+        y_vals = target[t + offsets]  # [n_h], strictly future
+
+        if drop_if_nan and (
+            np.isnan(x).any() or np.isnan(y_vals).any() or np.isnan(xf).any()
+        ):
+            continue
+
+        x_list.append(x)
+        xf_list.append(xf)
+        y_list.append(y_vals)
+        yexc_list.append((y_vals >= log_harsh).astype("float32"))
+        t_list.append(index[t])
+
+    n_feat = len(feature_cols)
+    n_kf = len(known_future_cols)
+    n_h = len(horizon_names)
+    if x_list:
+        x_arr = np.stack(x_list).astype("float32")
+        xf_arr = np.stack(xf_list).astype("float32")
+        y_arr = np.stack(y_list).astype("float32")
+        yexc_arr = np.stack(yexc_list).astype("float32")
+        t_arr = np.asarray(t_list, dtype="datetime64[ns]")
+    else:  # no valid windows -> correctly-shaped empties
+        x_arr = np.empty((0, lookback, n_feat), dtype="float32")
+        xf_arr = np.empty((0, decoder_steps, n_kf), dtype="float32")
+        y_arr = np.empty((0, n_h), dtype="float32")
+        yexc_arr = np.empty((0, n_h), dtype="float32")
+        t_arr = np.empty((0,), dtype="datetime64[ns]")
+
+    return WindowTensors(
+        X=x_arr,
+        X_future=xf_arr,
+        y=y_arr,
+        y_exceed=yexc_arr,
+        t_index=t_arr,
+        feature_cols=list(feature_cols),
+        known_future_cols=list(known_future_cols),
+        horizon_names=horizon_names,
     )
 
 
@@ -139,16 +197,39 @@ def chronological_split(
 
 
 def save_windows(tensors: WindowTensors, path: str | Path) -> None:
-    """Persist window tensors to ``windows.npz`` (CONTRACTS.md §8)."""
-    raise NotImplementedError(
-        "TODO: np.savez_compressed(path, X=..., X_future=..., y=..., y_exceed=..., "
-        "t_index=..., feature_cols=..., known_future_cols=..., horizon_names=...)."
+    """Persist window tensors to ``windows.npz`` via ``np.savez_compressed`` (CONTRACTS.md §8).
+
+    Keys: ``X, X_future, y, y_exceed, t_index, feature_cols, known_future_cols,
+    horizon_names``.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        X=tensors.X,
+        X_future=tensors.X_future,
+        y=tensors.y,
+        y_exceed=tensors.y_exceed,
+        t_index=tensors.t_index,
+        feature_cols=np.asarray(tensors.feature_cols, dtype=object),
+        known_future_cols=np.asarray(tensors.known_future_cols, dtype=object),
+        horizon_names=np.asarray(tensors.horizon_names, dtype=object),
     )
 
 
 def load_windows(path: str | Path) -> WindowTensors:
     """Load window tensors from ``windows.npz`` into a :class:`WindowTensors`."""
-    raise NotImplementedError("TODO: np.load(path, allow_pickle=True) -> WindowTensors(...).")
+    with np.load(path, allow_pickle=True) as data:
+        return WindowTensors(
+            X=data["X"],
+            X_future=data["X_future"],
+            y=data["y"],
+            y_exceed=data["y_exceed"],
+            t_index=data["t_index"],
+            feature_cols=list(data["feature_cols"].tolist()),
+            known_future_cols=list(data["known_future_cols"].tolist()),
+            horizon_names=list(data["horizon_names"].tolist()),
+        )
 
 
 # Re-export the horizon contract for convenience.

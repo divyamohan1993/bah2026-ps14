@@ -7,4 +7,24 @@ ONNX inference, and a climatology LUT fallback, exposed via FastAPI and refreshe
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from ps14.serve.inference import (
+    ClimatologyLUT,
+    ForecastCache,
+    ForecastPayload,
+    HorizonForecast,
+    OnlineFeatureState,
+    Predictor,
+    build_payload,
+    export_to_onnx,
+)
+
+__all__ = [
+    "OnlineFeatureState",
+    "ForecastCache",
+    "ClimatologyLUT",
+    "Predictor",
+    "ForecastPayload",
+    "HorizonForecast",
+    "build_payload",
+    "export_to_onnx",
+]

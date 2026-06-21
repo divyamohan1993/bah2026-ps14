@@ -8,9 +8,12 @@ val/test (and never fit on GRASP/GSAT).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
+from sklearn.preprocessing import RobustScaler, StandardScaler
 
 
 def log10_floor(x: np.ndarray | pd.Series, floor: float = 0.01) -> np.ndarray | pd.Series:
@@ -47,50 +50,115 @@ def inverse_log10(x: np.ndarray | pd.Series) -> np.ndarray | pd.Series:
     return np.power(10.0, np.asarray(x, dtype="float64"))
 
 
+def _new_sklearn_scaler(kind: str):
+    """Instantiate a fresh, unfitted scikit-learn scaler for ``kind``."""
+    if kind == "standard":
+        return StandardScaler()
+    if kind == "robust":
+        return RobustScaler()
+    raise ValueError(f"kind must be 'standard' or 'robust', got {kind!r}")
+
+
 def fit_scaler(
     df: pd.DataFrame,
     feature_cols: list[str],
     *,
     kind: str = "standard",
-):
+) -> dict[str, Any]:
     """Fit a feature scaler on the TRAIN slice only (leakage-critical, R5 §4.9).
+
+    The fit statistics (center / scale per column) are computed **exclusively** from the
+    rows in ``df`` — the caller is responsible for passing the chronological TRAIN slice so
+    that no validation/test/GRASP statistics leak into the transform (R5 §4.9, §5.2).
 
     Parameters
     ----------
     df:
         TRAIN-only frame (the caller slices chronologically before calling this).
     feature_cols:
-        Columns to scale.
+        Columns to scale (channel order is preserved in the returned state).
     kind:
         ``"standard"`` (z-score) or ``"robust"`` (median/IQR; better for heavy tails).
 
     Returns
     -------
-    Fitted scaler
-        A scikit-learn scaler fit on ``df[feature_cols]`` (ignoring NaN per sklearn rules).
-        Persist with :func:`save_scaler`.
+    dict
+        A JSON-serialisable ``scaler_state`` with keys ``kind``, ``columns``, ``center``,
+        and ``scale`` (per-column floats). Consumed by :func:`apply_scaler` /
+        :func:`inverse_scaler` and persisted by :func:`save_scaler`. NaNs in the train
+        slice are ignored when computing the statistics (column-wise nan-aware moments).
     """
-    raise NotImplementedError(
-        "TODO: instantiate StandardScaler/RobustScaler; fit on df[feature_cols]; "
-        "return it. MUST be called on the train slice only (R5 §4.9)."
-    )
+    cols = list(feature_cols)
+    skl = _new_sklearn_scaler(kind)
+    data = df.loc[:, cols].to_numpy(dtype="float64")
+
+    if kind == "standard":
+        center = np.nanmean(data, axis=0)
+        scale = np.nanstd(data, axis=0)
+    else:  # robust: median + IQR (matches sklearn RobustScaler defaults)
+        center = np.nanmedian(data, axis=0)
+        q75 = np.nanpercentile(data, 75, axis=0)
+        q25 = np.nanpercentile(data, 25, axis=0)
+        scale = q75 - q25
+
+    center = np.where(np.isfinite(center), center, 0.0)
+    # Guard against zero/degenerate scale (constant columns) -> divide-by-1 (no-op).
+    scale = np.where(np.isfinite(scale) & (scale > 0.0), scale, 1.0)
+
+    # Prime the sklearn scaler with the same fitted attributes so a downstream consumer can
+    # use it directly if desired (kept as metadata, not the source of truth for transform).
+    skl.fit(np.where(np.isnan(data), center, data))
+
+    return {
+        "kind": kind,
+        "columns": cols,
+        "center": center.astype("float64").tolist(),
+        "scale": scale.astype("float64").tolist(),
+    }
 
 
-def apply_scaler(df: pd.DataFrame, feature_cols: list[str], scaler) -> pd.DataFrame:
-    """Transform ``df[feature_cols]`` with an already-fit scaler (returns a copy)."""
-    raise NotImplementedError(
-        "TODO: out = df.copy(); out[feature_cols] = scaler.transform(...); return out."
-    )
+def apply_scaler(df: pd.DataFrame, scaler_state: dict[str, Any]) -> pd.DataFrame:
+    """Transform a frame with an already-fit ``scaler_state`` (returns a copy).
+
+    ``(x - center) / scale`` per column. Columns absent from ``df`` are skipped; NaNs are
+    preserved as NaN (never imputed by scaling).
+    """
+    cols = scaler_state["columns"]
+    center = np.asarray(scaler_state["center"], dtype="float64")
+    scale = np.asarray(scaler_state["scale"], dtype="float64")
+    out = df.copy()
+    for col, c, s in zip(cols, center, scale, strict=True):
+        if col in out.columns:
+            out[col] = (out[col].to_numpy(dtype="float64") - c) / s
+    return out
 
 
-def save_scaler(scaler, path: str | Path) -> None:
-    """Persist a fitted scaler (joblib) to ``models/scaler_<split>.joblib`` (CONTRACTS.md §8)."""
-    raise NotImplementedError("TODO: joblib.dump(scaler, path).")
+def inverse_scaler(df: pd.DataFrame, scaler_state: dict[str, Any]) -> pd.DataFrame:
+    """Invert :func:`apply_scaler` (``x * scale + center`` per column); returns a copy."""
+    cols = scaler_state["columns"]
+    center = np.asarray(scaler_state["center"], dtype="float64")
+    scale = np.asarray(scaler_state["scale"], dtype="float64")
+    out = df.copy()
+    for col, c, s in zip(cols, center, scale, strict=True):
+        if col in out.columns:
+            out[col] = out[col].to_numpy(dtype="float64") * s + c
+    return out
 
 
-def load_scaler(path: str | Path):
-    """Load a persisted scaler (joblib)."""
-    raise NotImplementedError("TODO: return joblib.load(path).")
+def save_scaler(scaler_state: dict[str, Any], path: str | Path) -> None:
+    """Persist a fitted ``scaler_state`` (joblib) to ``models/scaler_<split>.joblib``.
+
+    The state is a plain dict (CONTRACTS.md §8); joblib is used for parity with the other
+    persisted artifacts. The dict is also JSON-serialisable for human inspection.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(scaler_state, path)
+
+
+def load_scaler(path: str | Path) -> dict[str, Any]:
+    """Load a persisted ``scaler_state`` (joblib)."""
+    return joblib.load(path)
 
 
 __all__ = [
@@ -98,6 +166,7 @@ __all__ = [
     "inverse_log10",
     "fit_scaler",
     "apply_scaler",
+    "inverse_scaler",
     "save_scaler",
     "load_scaler",
 ]

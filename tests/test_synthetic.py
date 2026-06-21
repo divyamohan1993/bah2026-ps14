@@ -1,8 +1,9 @@
 """Tests for the synthetic generator + the physics helpers it relies on.
 
 The coupling-function and cyclic-encoding helpers (used by the generator and feature
-layer) are FULLY IMPLEMENTED and tested here; the generator orchestration functions are
-stubs (asserted to raise until implemented).
+layer) are FULLY IMPLEMENTED and tested here, alongside real tests of the physically
+plausible synthetic generator (schema conformance, exceedance calibration,
+reproducibility, MLT range).
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ps14.constants import HARSH_PFU
+from ps14.datasets import schema
 from ps14.features import offline
 from ps14.io import synthetic
 from ps14.utils import timeops
@@ -93,8 +96,18 @@ def test_ballistic_lag_minutes_plausible():
 
 
 # --------------------------------------------------------------------------------------
-# Generator stubs
+# Synthetic generator
 # --------------------------------------------------------------------------------------
+
+# A short span re-used across tests (10 days at 5-min = 2880 samples).
+_START = "2014-03-01"
+_END = "2014-03-11"
+
+
+@pytest.fixture(scope="module")
+def short_dataset() -> pd.DataFrame:
+    """A reproducible 10-day synthetic merged frame at the project cadence."""
+    return synthetic.generate_dataset(_START, _END, seed=0, longitude_deg=83.0)
 
 
 def test_synthetic_params_defaults():
@@ -103,6 +116,101 @@ def test_synthetic_params_defaults():
     assert p.vsw_to_flux_lag_days == pytest.approx(1.5)
 
 
-def test_generate_stub_raises():
-    with pytest.raises(NotImplementedError):
-        synthetic.generate(synthetic.SyntheticParams())
+def test_generate_dataset_conforms_to_merged_schema(short_dataset):
+    # validate_merged raises SchemaError on any violation; a clean return is the assertion.
+    problems = schema.validate_merged(short_dataset, raise_on_error=False)
+    assert problems == [], f"merged-schema violations: {problems}"
+
+
+def test_generate_dataset_index_is_uniform_5min(short_dataset):
+    idx = short_dataset.index
+    assert idx.name == "time"
+    assert idx.is_monotonic_increasing
+    assert not idx.has_duplicates
+    deltas = idx.to_series().diff().dropna().unique()
+    assert len(deltas) == 1 and deltas[0] == pd.Timedelta("5min")
+    # 10 days at 5-min, half-open grid.
+    assert len(short_dataset) == 10 * 24 * 12
+
+
+def test_generate_dataset_required_columns_present(short_dataset):
+    for col in schema.MERGED_REQUIRED:
+        assert col in short_dataset.columns
+    assert short_dataset["sat_id"].dtype == "category"
+    assert short_dataset["flux_e2_imputed"].dtype == np.int8
+
+
+def test_flux_exceeds_harsh_threshold_sometimes(short_dataset):
+    flux = short_dataset["flux_e2"].to_numpy()
+    valid = flux[~np.isnan(flux)]
+    exceed = (valid >= HARSH_PFU).mean()
+    # The generator must produce positive exceedance examples (storm peaks > 1000 pfu)
+    # without being saturated -- a realistic minority of samples.
+    assert exceed > 0.0, "no samples exceed 1000 pfu (no positive exceedance examples)"
+    assert exceed < 0.6, f"implausibly high exceedance fraction {exceed:.2%}"
+
+
+def test_flux_dynamic_range_is_physical(short_dataset):
+    log_flux = short_dataset["log_flux_e2"].dropna().to_numpy()
+    # Quiet periods sit around 10^1-10^2 pfu; storm peaks reach but do not wildly exceed
+    # the relativistic-electron ceiling (~10^5 pfu).
+    assert log_flux.min() >= np.log10(0.01) - 1e-9  # the log floor
+    assert log_flux.max() < 5.5
+    assert np.nanmedian(short_dataset["flux_e2"].to_numpy()) < HARSH_PFU
+
+
+def test_generate_dataset_is_reproducible():
+    a = synthetic.generate_dataset(_START, _END, seed=0)
+    b = synthetic.generate_dataset(_START, _END, seed=0)
+    # NaN-aware exact equality on the target and a driver.
+    pd.testing.assert_series_equal(a["flux_e2"], b["flux_e2"])
+    pd.testing.assert_series_equal(a["vsw"], b["vsw"])
+
+
+def test_seed_changes_the_realization():
+    a = synthetic.generate_dataset(_START, _END, seed=0)
+    b = synthetic.generate_dataset(_START, _END, seed=1)
+    assert not a["flux_e2"].fillna(-1.0).equals(b["flux_e2"].fillna(-1.0))
+
+
+def test_mlt_in_range(short_dataset):
+    mlt = short_dataset["mlt"].dropna().to_numpy()
+    assert (mlt >= 0.0).all() and (mlt < 24.0).all()
+
+
+def test_log_columns_match_log10_floor(short_dataset):
+    from ps14.preprocess.transform import log10_floor
+
+    expected = np.asarray(log10_floor(short_dataset["flux_e2"], floor=0.01))
+    got = short_dataset["log_flux_e2"].to_numpy()
+    both = ~(np.isnan(expected) | np.isnan(got))
+    np.testing.assert_allclose(got[both], expected[both], rtol=1e-9, atol=1e-9)
+
+
+def test_with_gaps_injects_nans_and_clean_frame_has_none():
+    gapped = synthetic.generate_dataset(_START, _END, seed=0, with_gaps=True)
+    clean = synthetic.generate_dataset(_START, _END, seed=0, with_gaps=False, with_spikes=False)
+    assert gapped["flux_e2"].isna().any(), "with_gaps=True should null some samples"
+    assert not clean["flux_e2"].isna().any(), "with_gaps=False should be NaN-free"
+    # *_imputed masks stay 0 -- imputation is a downstream preprocess responsibility.
+    assert (gapped["flux_e2_imputed"] == 0).all()
+
+
+def test_pdyn_consistent_with_density_and_speed():
+    df = synthetic.generate_dataset(_START, _END, seed=0, with_gaps=False, with_spikes=False)
+    expected = offline.dynamic_pressure(
+        df["density"].to_numpy(), df["vsw"].to_numpy()
+    )
+    np.testing.assert_allclose(df["pdyn"].to_numpy(), expected, rtol=1e-6)
+
+
+def test_indices_have_correct_sign_conventions():
+    df = synthetic.generate_dataset(_START, _END, seed=0, with_gaps=False, with_spikes=False)
+    assert (df["ae"].to_numpy() >= 0.0).all(), "AE must be non-negative"
+    assert (df["al"].to_numpy() <= 0.0).all(), "AL must be non-positive"
+    assert df["sym_h"].min() < 0.0, "SYM-H should go negative during storms"
+
+
+def test_exceedance_fraction_helper(short_dataset):
+    frac = synthetic.exceedance_fraction(short_dataset)
+    assert 0.0 < frac < 0.6

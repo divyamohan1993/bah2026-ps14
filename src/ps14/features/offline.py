@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ps14.datasets import schema
 from ps14.utils import timeops
 
 # Physical constants for coupling functions / Shue model.
@@ -90,19 +91,43 @@ def add_coupling_functions(df: pd.DataFrame) -> pd.DataFrame:
 
     Requires ``vsw, bz_gsm, bt`` and (for the full Newell form) a ``by_gsm`` column; if
     ``by_gsm`` is absent it is approximated as 0 (clock angle then collapses to Bz sign).
-    Also (re)derives ``pdyn`` from ``density``/``vsw`` when missing.
+    Also (re)derives ``pdyn`` from ``density``/``vsw`` when missing. Uses the FULLY
+    IMPLEMENTED physics helpers above (CONTRACTS.md §3).
     """
-    raise NotImplementedError(
-        "TODO: compute by-aware coupling columns using the helpers above; fill pdyn if absent; "
-        "return df with the 5 coupling columns added (CONTRACTS.md §3)."
+    out = df.copy()
+    vsw = out["vsw"].to_numpy(dtype="float64")
+    bz = out["bz_gsm"].to_numpy(dtype="float64")
+    bt = out["bt"].to_numpy(dtype="float64")
+    by = (
+        out["by_gsm"].to_numpy(dtype="float64")
+        if "by_gsm" in out.columns
+        else np.zeros_like(vsw)
     )
+
+    # (Re)derive dynamic pressure from density/vsw when missing or all-NaN.
+    if "pdyn" not in out.columns or out["pdyn"].isna().all():
+        if "density" in out.columns:
+            out["pdyn"] = dynamic_pressure(out["density"].to_numpy(dtype="float64"), vsw)
+
+    theta_c = clock_angle(by, bz)
+    out["vbs"] = vbs(vsw, bz)
+    out["newell"] = newell_coupling(vsw, by, bz)
+    out["epsilon"] = epsilon_coupling(vsw, bt, theta_c)
+    out["clock_angle"] = theta_c
+    out["r0_standoff"] = shue_standoff(out["pdyn"].to_numpy(dtype="float64"), bz)
+    return out
 
 
 def add_lag_features(df: pd.DataFrame, column: str, lags_steps: list[int]) -> pd.DataFrame:
-    """Append ``{column}_lag_{k}`` shifted features (no look-ahead: shift is positive)."""
-    raise NotImplementedError(
-        "TODO: for k in lags_steps: df[f'{column}_lag_{k}'] = df[column].shift(k)."
-    )
+    """Append ``{column}_lag_{k}`` shifted features (no look-ahead: shift is positive).
+
+    A positive ``shift(k)`` brings the value from ``k`` steps in the PAST to the current
+    row, so the lag feature is knowable at time ``t`` (never future).
+    """
+    out = df.copy()
+    for k in lags_steps:
+        out[f"{column}_lag_{k}"] = out[column].shift(k)
+    return out
 
 
 def add_rolling_features(
@@ -113,13 +138,16 @@ def add_rolling_features(
 ) -> pd.DataFrame:
     """Append rolling ``{column}_roll{stat}_{w}`` features over trailing windows.
 
-    Rolling windows use ``min_periods`` to avoid leaking future and are computed on the
-    trailing window ``[t-w+1 .. t]`` only.
+    Rolling windows are computed on the trailing window ``[t-w+1 .. t]`` only (no
+    ``center``), so no future value leaks in. ``min_periods=1`` keeps partial windows at
+    the series head (still strictly past-only).
     """
-    raise NotImplementedError(
-        "TODO: for w in windows, for stat in stats: df[f'{column}_roll{stat}_{w}'] = "
-        "df[column].rolling(w).agg(stat). Trailing window only (no center)."
-    )
+    out = df.copy()
+    for w in windows:
+        roller = out[column].rolling(window=w, min_periods=1)
+        for stat in stats:
+            out[f"{column}_roll{stat}_{w}"] = getattr(roller, stat)()
+    return out
 
 
 def add_cyclic_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -139,27 +167,68 @@ def add_cyclic_features(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_feature_matrix(df: pd.DataFrame, config) -> pd.DataFrame:
+def build_feature_matrix(df: pd.DataFrame, config=None) -> pd.DataFrame:
     """Assemble the full feature matrix from the merged dataframe (CONTRACTS.md §3).
+
+    Produces **exactly** ``schema.FEATURE_COLUMNS`` (plus ``schema.KNOWN_FUTURE_COLUMNS``,
+    the target, static columns, and any ``*_imputed`` masks) by:
+
+    * coupling functions (``vbs, newell, epsilon, clock_angle, r0_standoff``);
+    * lag features (``log_flux_e2`` lags {1,6,72,288,576}; ``vsw`` lags {288,576});
+    * rolling stats (``log_flux_e2`` rollmean {12,72,288}, rollstd {72,288}, rollmin/max
+      {72}; ``vsw`` rollmean 576; ``ae`` rollmean 288) on trailing windows only;
+    * known-future cyclic encodings (``tod_*``, ``doy_*``, ``mlt_*``).
+
+    All lag/rolling features use only PAST samples (no look-ahead), so every column is
+    knowable at its row's time ``t`` (R5 §5.2). The result is validated by
+    ``schema.validate_features``.
 
     Parameters
     ----------
     df:
         The canonical MERGED dataframe (validated by ``schema.validate_merged``).
     config:
-        A ``FeaturesConfig`` (lags_steps, roll_windows, coupling, difference_target).
+        Optional ``FeaturesConfig``; unused for the canonical column set (the exact
+        FEATURE_COLUMNS are fixed by the schema). Accepted for API symmetry.
 
     Returns
     -------
     pd.DataFrame
-        Same time index, with lag + rolling + coupling + cyclic features and propagated
-        ``*_imputed`` masks. Validated by ``schema.validate_features``.
+        Same time index, FEATURE_COLUMNS-complete, with propagated ``*_imputed`` masks.
     """
-    raise NotImplementedError(
-        "TODO: orchestrate add_coupling_functions + add_lag_features (target & vsw) + "
-        "add_rolling_features + add_cyclic_features per config; optionally difference the "
-        "target; return the FEATURE_COLUMNS-complete frame."
-    )
+    out = df.copy()
+
+    # 1) Coupling functions (also (re)derives pdyn if absent).
+    out = add_coupling_functions(out)
+
+    # 2) Lags: log_flux_e2 {1,6,72,288,576}, vsw {288,576} (CONTRACTS.md §3 exact set).
+    out = add_lag_features(out, "log_flux_e2", [1, 6, 72, 288, 576])
+    out = add_lag_features(out, "vsw", [288, 576])
+
+    # 3) Rolling stats, computed per (column, window, stat) to match the exact schema:
+    #    log_flux_e2: rollmean {12,72,288}, rollstd {72,288}, rollmin {72}, rollmax {72}.
+    out = add_rolling_features(out, "log_flux_e2", [12], stats=("mean",))
+    out = add_rolling_features(out, "log_flux_e2", [72], stats=("mean", "std", "min", "max"))
+    out = add_rolling_features(out, "log_flux_e2", [288], stats=("mean", "std"))
+    #    vsw rollmean 576 (2-day); ae rollmean 288 (1-day).
+    out = add_rolling_features(out, "vsw", [576], stats=("mean",))
+    out = add_rolling_features(out, "ae", [288], stats=("mean",))
+
+    # 4) Known-future cyclic encodings (tod/doy/mlt sin & cos).
+    out = add_cyclic_features(out)
+
+    # Ensure exact dtypes for the engineered float columns (validate_features wants float).
+    engineered = [
+        *schema.LAG_COLUMNS,
+        *schema.ROLLING_COLUMNS,
+        *schema.COUPLING_COLUMNS,
+        *schema.KNOWN_FUTURE_COLUMNS,
+    ]
+    for col in engineered:
+        if col in out.columns:
+            out[col] = out[col].astype("float64")
+
+    return out
 
 
 __all__ = [
