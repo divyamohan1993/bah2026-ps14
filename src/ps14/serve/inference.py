@@ -746,7 +746,7 @@ def export_to_onnx(
     *,
     lookback: int = 1,
     n_features: int | None = None,
-    opset: int = 17,
+    opset: int = 18,
     dynamic_batch: bool = True,
 ) -> Path:
     """Export a ``torch.nn.Module`` to ONNX for serving (lazy ``torch`` import, R4 §3.1).
@@ -764,7 +764,9 @@ def export_to_onnx(
     lookback, n_features:
         Dummy-input encoder shape (``n_features`` defaults to ``len(FEATURE_COLUMNS)``).
     opset:
-        ONNX opset version.
+        ONNX opset version. Defaults to 18, which the installed torch exporter implements
+        natively; requesting a lower version triggers a (non-fatal) onnxscript version
+        down-converter that logs a noisy traceback to stderr while leaving the model at 18.
     dynamic_batch:
         Declare a dynamic batch (and sequence) axis.
 

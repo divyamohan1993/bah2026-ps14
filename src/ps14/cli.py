@@ -3,7 +3,7 @@
 Uses argparse (always available) so importing the package never requires optional deps.
 Subcommands: ``synth-data``, ``fetch-data``, ``preprocess``, ``features``, ``baseline``,
 ``train``, ``evaluate``, ``serve``, ``dashboard``. Each loads the config and delegates to
-the relevant module; bodies are TODO-marked until those modules are implemented.
+the relevant module.
 
 Run via ``python -m ps14.cli <command>`` or the installed ``ps14`` console script.
 """
