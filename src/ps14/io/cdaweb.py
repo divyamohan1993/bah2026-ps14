@@ -100,15 +100,11 @@ def fetch_cdaweb(
     else:  # pragma: no cover - guarded by callers
         raise ValueError(f"unknown method {method!r} (expected 'cdasws' or 'pyspedas')")
 
-    logger.info(
-        "fetched %s [%s] %s..%s -> %d rows", dataset_id, method, start, end, len(frame)
-    )
+    logger.info("fetched %s [%s] %s..%s -> %d rows", dataset_id, method, start, end, len(frame))
     return frame
 
 
-def _fetch_via_cdasws(
-    dataset_id: str, variables: list[str], start: str, end: str
-) -> pd.DataFrame:
+def _fetch_via_cdasws(dataset_id: str, variables: list[str], start: str, end: str) -> pd.DataFrame:
     """Fetch via ``cdasws`` (returns an xarray.Dataset with ISTP metadata; R5 §2.3)."""
     try:
         from cdasws import CdasWs  # noqa: PLC0415  (lazy optional dependency)
@@ -256,9 +252,7 @@ def _fetch_via_pyspedas(
 
     files = [f for f in (downloaded or []) if str(f).endswith(".cdf")]
     if not files:
-        raise RuntimeError(
-            f"pyspedas returned no CDF files for {dataset_id!r} ({start}..{end})."
-        )
+        raise RuntimeError(f"pyspedas returned no CDF files for {dataset_id!r} ({start}..{end}).")
 
     frames = [read_cdf_to_frame(f, variables) for f in files]
     frame = pd.concat(frames).sort_index()

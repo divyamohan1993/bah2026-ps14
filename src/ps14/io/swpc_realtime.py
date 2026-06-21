@@ -132,8 +132,11 @@ def fetch_latest_electrons(url: str | None = None) -> pd.DataFrame:
         return frame
 
     if "energy" in frame.columns:
-        mask = frame["energy"].astype(str).str.replace(" ", "").isin(
-            [label.replace(" ", "") for label in _GE_2MEV_LABELS]
+        mask = (
+            frame["energy"]
+            .astype(str)
+            .str.replace(" ", "")
+            .isin([label.replace(" ", "") for label in _GE_2MEV_LABELS])
         )
         frame = frame[mask]
 
@@ -197,9 +200,7 @@ def fetch_latest_kp(url: str | None = None) -> pd.DataFrame:
     if frame.empty:
         return frame
     out = pd.DataFrame(index=frame.index)
-    kp_col = next(
-        (c for c in ("kp_index", "kp", "estimated_kp", "Kp") if c in frame.columns), None
-    )
+    kp_col = next((c for c in ("kp_index", "kp", "estimated_kp", "Kp") if c in frame.columns), None)
     if kp_col is not None:
         out["kp"] = pd.to_numeric(frame[kp_col], errors="coerce").astype("float64")
     out.index.name = "time"

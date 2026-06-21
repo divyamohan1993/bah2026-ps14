@@ -58,9 +58,7 @@ def _assert_proba_unit(p: np.ndarray, n: int) -> None:
 # ======================================================================================
 # Contract surface
 # ======================================================================================
-@pytest.mark.parametrize(
-    "cls", [Persistence, Climatology, LightGBMForecaster, REFMForecaster]
-)
+@pytest.mark.parametrize("cls", [Persistence, Climatology, LightGBMForecaster, REFMForecaster])
 def test_baselines_are_forecasters(cls):
     assert issubclass(cls, Forecaster)
     assert cls().horizon_names == HORIZON_NAMES
@@ -129,9 +127,7 @@ def test_climatology_save_load_roundtrip(tmp_path):
     path = tmp_path / "climatology.json"
     model.save(path)
     loaded = Climatology.load(path)
-    np.testing.assert_allclose(
-        model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5
-    )
+    np.testing.assert_allclose(model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5)
     q0, q1 = model.predict_quantiles(X, X_future), loaded.predict_quantiles(X, X_future)
     for tau in (0.1, 0.5, 0.9):
         np.testing.assert_allclose(q0[tau], q1[tau], rtol=1e-5)
@@ -162,9 +158,7 @@ def test_refm_save_load_roundtrip(tmp_path):
     path = tmp_path / "refm.joblib"
     model.save(path)
     loaded = REFMForecaster.load(path)
-    np.testing.assert_allclose(
-        model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5
-    )
+    np.testing.assert_allclose(model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5)
 
 
 # ======================================================================================
@@ -186,9 +180,7 @@ def test_lightgbm_fit_predict_and_roundtrip(tmp_path):
     path = tmp_path / "lightgbm.joblib"
     model.save(path)
     loaded = LightGBMForecaster.load(path)
-    np.testing.assert_allclose(
-        model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5
-    )
+    np.testing.assert_allclose(model.predict(X, X_future), loaded.predict(X, X_future), rtol=1e-5)
 
 
 def test_lightgbm_missing_dep_raises_informative():
@@ -302,15 +294,27 @@ def test_train_and_evaluate_baseline_end_to_end(tmp_path):
     X, X_future, y, y_exceed = _make_windows(n=n, lookback=16)
     t_index = np.arange(n).astype("datetime64[ns]")
     wt = WindowTensors(
-        X, X_future, y, y_exceed, t_index,
-        schema.FEATURE_COLUMNS, schema.KNOWN_FUTURE_COLUMNS, HORIZON_NAMES,
+        X,
+        X_future,
+        y,
+        y_exceed,
+        t_index,
+        schema.FEATURE_COLUMNS,
+        schema.KNOWN_FUTURE_COLUMNS,
+        HORIZON_NAMES,
     )
     cfg = load_config()
     cfg.split.embargo_steps = 5
     cfg.paths.models = tmp_path
 
     assert set(tr.MODEL_REGISTRY) == {
-        "persistence", "climatology", "lightgbm", "refm", "tft", "nhits", "foundation"
+        "persistence",
+        "climatology",
+        "lightgbm",
+        "refm",
+        "tft",
+        "nhits",
+        "foundation",
     }
 
     model = tr.train(cfg, model_name="climatology", windows=wt, save=True)
@@ -337,8 +341,14 @@ def test_evaluate_handles_empty_split():
     X, X_future, y, y_exceed = _make_windows(n=n, lookback=8)
     t_index = np.arange(n).astype("datetime64[ns]")
     wt = WindowTensors(
-        X, X_future, y, y_exceed, t_index,
-        schema.FEATURE_COLUMNS, schema.KNOWN_FUTURE_COLUMNS, HORIZON_NAMES,
+        X,
+        X_future,
+        y,
+        y_exceed,
+        t_index,
+        schema.FEATURE_COLUMNS,
+        schema.KNOWN_FUTURE_COLUMNS,
+        HORIZON_NAMES,
     )
     model = Climatology(n_tod_bins=4, n_kp_bins=3, n_doy_bins=3).fit(X, X_future, y, y_exceed)
     results = ev.evaluate(model, wt, split="test")  # default embargo 1296 -> empty

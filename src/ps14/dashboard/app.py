@@ -95,9 +95,7 @@ def build_flux_figure(
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig.add_scatter(x=steps, y=flux, name=">2 MeV flux (pfu)", line={"color": "#e45756"})
-    fig.add_scatter(
-        x=steps, y=vsw, name="Vsw (km/s)", line={"color": "#4c78a8"}, secondary_y=True
-    )
+    fig.add_scatter(x=steps, y=vsw, name="Vsw (km/s)", line={"color": "#4c78a8"}, secondary_y=True)
     fig.add_scatter(
         x=steps, y=bz, name="Bz (nT)", line={"color": "#54a24b", "dash": "dot"}, secondary_y=True
     )
@@ -108,9 +106,7 @@ def build_flux_figure(
         )
     fig.update_yaxes(type="log", title_text="flux (pfu)", secondary_y=False)
     fig.update_yaxes(title_text="Vsw / Bz", secondary_y=True)
-    fig.update_layout(
-        title="Live >2 MeV flux + solar wind", height=360, margin={"t": 40, "b": 20}
-    )
+    fig.update_layout(title="Live >2 MeV flux + solar wind", height=360, margin={"t": 40, "b": 20})
     return fig
 
 
@@ -178,9 +174,7 @@ def render_flux_panel(feed: DemoFeed) -> None:
     """Render the live >2 MeV flux + solar-wind time-series panel (Plotly)."""
     import streamlit as st  # lazy: optional [viz] extra
 
-    fig = build_flux_figure(
-        list(feed.step_idx), list(feed.flux), list(feed.vsw), list(feed.bz)
-    )
+    fig = build_flux_figure(list(feed.step_idx), list(feed.flux), list(feed.vsw), list(feed.bz))
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -278,9 +272,7 @@ def main(api_base: str = API_BASE_DEFAULT, *, refresh_s: float = 5.0) -> None:
 
 def _demo_dataframe(feed: DemoFeed) -> Any:
     """Return a small numpy view of the demo history (used by tests / notebooks)."""
-    return np.column_stack(
-        [list(feed.step_idx), list(feed.flux), list(feed.vsw), list(feed.bz)]
-    )
+    return np.column_stack([list(feed.step_idx), list(feed.flux), list(feed.vsw), list(feed.bz)])
 
 
 if __name__ == "__main__":  # pragma: no cover - Streamlit invokes the module directly

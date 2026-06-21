@@ -260,11 +260,9 @@ def _magnetic_local_time(time_index: pd.DatetimeIndex, longitude_deg: float) -> 
     plus the sensor longitude expressed in hours (15 deg = 1 h). Midnight in MLT occurs
     when the sensor is on the anti-sunward side.
     """
-    ut_hours = (
-        time_index.hour
-        + time_index.minute / 60.0
-        + time_index.second / 3600.0
-    ).to_numpy(dtype="float64")
+    ut_hours = (time_index.hour + time_index.minute / 60.0 + time_index.second / 3600.0).to_numpy(
+        dtype="float64"
+    )
     mlt = (ut_hours + longitude_deg / 15.0) % 24.0
     return mlt
 
@@ -328,9 +326,9 @@ def generate_flux(
     diurnal = params.diurnal_amplitude_dex * np.cos(2.0 * np.pi * (mlt - 12.0) / 24.0)
 
     # Semiannual (equinox) modulation, ~x2 in linear -> ~0.3 dex, peaks at equinoxes.
-    doy = (
-        time_index.dayofyear + (time_index.hour + time_index.minute / 60.0) / 24.0
-    ).to_numpy(dtype="float64")
+    doy = (time_index.dayofyear + (time_index.hour + time_index.minute / 60.0) / 24.0).to_numpy(
+        dtype="float64"
+    )
     semiannual = 0.15 * np.cos(4.0 * np.pi * (doy - 80.0) / 365.25)
 
     # Storm dropouts: prompt depletion when Pdyn spikes (shadowing) or SYM-H goes deep.
@@ -608,27 +606,58 @@ OMNI_VARIABLES: tuple[str, ...] = (
 
 # Per-variable ISTP attributes for the writer (UNITS / valid range / human description).
 _VAR_ATTRS: dict[str, dict[str, object]] = {
-    "flux_e2": {"UNITS": "cm^-2 s^-1 sr^-1", "VALIDMIN": 0.0, "VALIDMAX": 1.0e8,
-                "CATDESC": ">2 MeV integral electron flux at GEO"},
-    "flux_seed": {"UNITS": "cm^-2 s^-1 sr^-1", "VALIDMIN": 0.0, "VALIDMAX": 1.0e9,
-                  "CATDESC": "sub-MeV seed electron flux"},
-    "mlt": {"UNITS": "hours", "VALIDMIN": 0.0, "VALIDMAX": 24.0,
-            "CATDESC": "magnetic local time of the GEO sensor"},
-    "vsw": {"UNITS": "km/s", "VALIDMIN": 100.0, "VALIDMAX": 1200.0,
-            "CATDESC": "solar-wind bulk speed"},
-    "density": {"UNITS": "cm^-3", "VALIDMIN": 0.0, "VALIDMAX": 200.0,
-                "CATDESC": "solar-wind proton density"},
-    "bz_gsm": {"UNITS": "nT", "VALIDMIN": -100.0, "VALIDMAX": 100.0,
-               "CATDESC": "IMF Bz (GSM)"},
+    "flux_e2": {
+        "UNITS": "cm^-2 s^-1 sr^-1",
+        "VALIDMIN": 0.0,
+        "VALIDMAX": 1.0e8,
+        "CATDESC": ">2 MeV integral electron flux at GEO",
+    },
+    "flux_seed": {
+        "UNITS": "cm^-2 s^-1 sr^-1",
+        "VALIDMIN": 0.0,
+        "VALIDMAX": 1.0e9,
+        "CATDESC": "sub-MeV seed electron flux",
+    },
+    "mlt": {
+        "UNITS": "hours",
+        "VALIDMIN": 0.0,
+        "VALIDMAX": 24.0,
+        "CATDESC": "magnetic local time of the GEO sensor",
+    },
+    "vsw": {
+        "UNITS": "km/s",
+        "VALIDMIN": 100.0,
+        "VALIDMAX": 1200.0,
+        "CATDESC": "solar-wind bulk speed",
+    },
+    "density": {
+        "UNITS": "cm^-3",
+        "VALIDMIN": 0.0,
+        "VALIDMAX": 200.0,
+        "CATDESC": "solar-wind proton density",
+    },
+    "bz_gsm": {"UNITS": "nT", "VALIDMIN": -100.0, "VALIDMAX": 100.0, "CATDESC": "IMF Bz (GSM)"},
     "bt": {"UNITS": "nT", "VALIDMIN": 0.0, "VALIDMAX": 100.0, "CATDESC": "IMF magnitude |B|"},
-    "ae": {"UNITS": "nT", "VALIDMIN": 0.0, "VALIDMAX": 5000.0,
-           "CATDESC": "auroral electrojet index"},
+    "ae": {
+        "UNITS": "nT",
+        "VALIDMIN": 0.0,
+        "VALIDMAX": 5000.0,
+        "CATDESC": "auroral electrojet index",
+    },
     "al": {"UNITS": "nT", "VALIDMIN": -5000.0, "VALIDMAX": 500.0, "CATDESC": "AL index"},
     "kp": {"UNITS": " ", "VALIDMIN": 0.0, "VALIDMAX": 9.0, "CATDESC": "planetary K-index"},
-    "sym_h": {"UNITS": "nT", "VALIDMIN": -1000.0, "VALIDMAX": 200.0,
-              "CATDESC": "SYM-H (high-res Dst)"},
-    "f107": {"UNITS": "sfu", "VALIDMIN": 50.0, "VALIDMAX": 400.0,
-             "CATDESC": "F10.7 solar radio flux"},
+    "sym_h": {
+        "UNITS": "nT",
+        "VALIDMIN": -1000.0,
+        "VALIDMAX": 200.0,
+        "CATDESC": "SYM-H (high-res Dst)",
+    },
+    "f107": {
+        "UNITS": "sfu",
+        "VALIDMIN": 50.0,
+        "VALIDMAX": 400.0,
+        "CATDESC": "F10.7 solar radio flux",
+    },
 }
 
 
@@ -815,8 +844,12 @@ def make_demo_dataset(
         with_spikes=True,
     )
     params = SyntheticParams(
-        start=str(start), end=str(end), cadence=f"{cadence_min}min", seed=seed,
-        longitude_deg=float(longitude_deg), sat_id=sat_id,
+        start=str(start),
+        end=str(end),
+        cadence=f"{cadence_min}min",
+        seed=seed,
+        longitude_deg=float(longitude_deg),
+        sat_id=sat_id,
     )
 
     artifacts: dict[str, Path] = {}
@@ -825,10 +858,12 @@ def make_demo_dataset(
 
     if write_cdf_files:
         try:
-            artifacts["goes_cdf"] = write_cdf(df, out_dir / "synthetic_goes.cdf",
-                                              kind="goes", params=params)
-            artifacts["omni_cdf"] = write_cdf(df, out_dir / "synthetic_omni.cdf",
-                                              kind="omni", params=params)
+            artifacts["goes_cdf"] = write_cdf(
+                df, out_dir / "synthetic_goes.cdf", kind="goes", params=params
+            )
+            artifacts["omni_cdf"] = write_cdf(
+                df, out_dir / "synthetic_omni.cdf", kind="omni", params=params
+            )
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning(
                 "CDF writing failed (%s); continuing with parquet only. "

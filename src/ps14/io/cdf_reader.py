@@ -235,13 +235,9 @@ def read_cdf_variable(path: str | Path, var: str) -> pd.Series:
         epoch = cdf.varget(epoch_var)
 
     times = epoch_to_datetime(epoch)
-    data = mask_invalid(
-        data, fillval=meta.fillval, validmin=meta.validmin, validmax=meta.validmax
-    )
+    data = mask_invalid(data, fillval=meta.fillval, validmin=meta.validmin, validmax=meta.validmax)
 
-    series = pd.Series(
-        data, index=pd.DatetimeIndex(times, name="time"), name=var, dtype="float64"
-    )
+    series = pd.Series(data, index=pd.DatetimeIndex(times, name="time"), name=var, dtype="float64")
     series.attrs["units"] = meta.units
     series.attrs["catdesc"] = meta.catdesc
     series.attrs["source_var"] = var

@@ -330,20 +330,44 @@ class TFTForecaster(Forecaster):
         proba = norm.sf(LOG_HARSH, loc=np.asarray(mid, dtype="float64"), scale=sigma)
         return np.clip(proba, 0.0, 1.0).astype("float32")
 
-    def variable_importances(self) -> dict[str, np.ndarray]:
+    def variable_importances(self, X: np.ndarray, X_future: np.ndarray) -> dict[str, np.ndarray]:
         """Return the TFT variable-selection weights (answers 'important drivers').
 
-        pytorch-forecasting exposes these via ``model.interpret_output(raw_predictions)`` on
-        a *raw* prediction batch (``mode="raw"``). Use the fitted ``self._model`` directly:
-        ``raw = self._model.predict(loader, mode="raw")`` then
-        ``self._model.interpret_output(raw, reduction="sum")``.
+        Runs a *raw* prediction batch (``mode="raw"``) over the supplied windows and reduces
+        the per-timestep variable-selection-network weights with
+        ``model.interpret_output(raw, reduction="sum")``. The returned dict maps each
+        pytorch-forecasting interpretation key (e.g. ``"encoder_variables"``,
+        ``"decoder_variables"``, ``"static_variables"``, ``"attention"``) to a 1-D NumPy array
+        of normalised importance weights — directly satisfying PS-14 objective 2 ("identify
+        important solar-wind variables"). Pair the ``encoder_variables`` ordering with
+        ``self._feature_cols`` (the target ``log_flux_e2`` is prepended as channel 0, matching
+        ``time_varying_unknown_reals``) and ``decoder_variables`` with ``self._known_future_cols``.
+
+        Parameters
+        ----------
+        X, X_future:
+            Window tensors (shapes per CONTRACTS.md §4) to interpret. A modest batch (e.g. the
+            validation/test set) is sufficient; weights are summed over samples and timesteps.
         """
         self._require_fitted()
-        raise NotImplementedError(
-            "variable_importances requires a raw prediction batch; run "
-            "self._model.predict(loader, mode='raw') then "
-            "self._model.interpret_output(raw, reduction='sum') (pytorch-forecasting)."
+        from pytorch_forecasting import TimeSeriesDataSet
+
+        df = self._to_long_frame(np.asarray(X, dtype="float32"), X_future, None)
+        ds = TimeSeriesDataSet.from_dataset(
+            self._training_dataset, df, predict=True, stop_randomization=True
         )
+        loader = ds.to_dataloader(
+            train=False, batch_size=int(self.params["batch_size"]), num_workers=0
+        )
+        raw = self._model.predict(loader, mode="raw", return_x=False)
+        # pytorch-forecasting's predict() may wrap the raw output; unwrap to the dict it expects.
+        raw_out = raw.output if hasattr(raw, "output") else raw
+        interpretation = self._model.interpret_output(raw_out, reduction="sum")
+        importances: dict[str, np.ndarray] = {}
+        for key, val in interpretation.items():
+            arr = val.detach().cpu().numpy() if hasattr(val, "detach") else np.asarray(val)
+            importances[key] = arr.astype("float64")
+        return importances
 
     # ---- persistence -----------------------------------------------------------------
     def save(self, path: str | Path) -> None:  # noqa: D102

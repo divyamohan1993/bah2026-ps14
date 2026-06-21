@@ -146,9 +146,7 @@ class Climatology(Forecaster):
             ((tod * self.n_kp_bins + kp) * self.n_doy_bins + doy) * self.n_mlt_bins + mlt
         ).astype("int64")
 
-    def _bins_for_horizon(
-        self, X: np.ndarray, X_future: np.ndarray, h_name: str
-    ) -> np.ndarray:
+    def _bins_for_horizon(self, X: np.ndarray, X_future: np.ndarray, h_name: str) -> np.ndarray:
         """Compute the flat climatology bin per sample for one named horizon."""
         X = np.asarray(X, dtype="float64")
         X_future = np.asarray(X_future, dtype="float64")
@@ -158,9 +156,7 @@ class Climatology(Forecaster):
         tod = _angle_to_unit_bin(kf[:, _KF["tod_sin"]], kf[:, _KF["tod_cos"]], self.n_tod_bins)
         doy = _angle_to_unit_bin(kf[:, _KF["doy_sin"]], kf[:, _KF["doy_cos"]], self.n_doy_bins)
         if self.n_mlt_bins > 1:
-            mlt = _angle_to_unit_bin(
-                kf[:, _KF["mlt_sin"]], kf[:, _KF["mlt_cos"]], self.n_mlt_bins
-            )
+            mlt = _angle_to_unit_bin(kf[:, _KF["mlt_sin"]], kf[:, _KF["mlt_cos"]], self.n_mlt_bins)
         else:
             mlt = np.zeros(X.shape[0], dtype="int64")
         kp_val = X[:, -1, self.kp_channel]  # last observed Kp
@@ -222,9 +218,9 @@ class Climatology(Forecaster):
             bins = self._bins_for_horizon(X, X_future, h_name)
             lut = self._quant[h_name]
             default = self._global_quant[h_name]
-            rows = np.asarray(
-                [lut.get(int(b), default) for b in bins], dtype="float32"
-            ).reshape(n, n_q)
+            rows = np.asarray([lut.get(int(b), default) for b in bins], dtype="float32").reshape(
+                n, n_q
+            )
             # Enforce monotone non-crossing quantiles per row.
             rows = np.sort(rows, axis=1)
             for qi, q in enumerate(self.quantiles):

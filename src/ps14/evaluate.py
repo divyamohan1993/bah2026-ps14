@@ -31,9 +31,7 @@ _TARGET_CHANNEL = schema.FEATURE_COLUMNS.index(schema.TARGET)
 # ======================================================================================
 # Split selection
 # ======================================================================================
-def _select_split(
-    windows: WindowTensors, split: str, split_kwargs: dict[str, Any] | None = None
-):
+def _select_split(windows: WindowTensors, split: str, split_kwargs: dict[str, Any] | None = None):
     """Return ``(X, X_future, y, y_exceed)`` for the requested chronological split.
 
     ``split_kwargs`` (``train``, ``val``, ``embargo_steps``) is forwarded to
@@ -100,8 +98,10 @@ def evaluate_model(
     y = np.asarray(y, dtype="float64")
     y_exceed = np.asarray(y_exceed, dtype="float64")
     y_pred = np.asarray(model.predict(X, X_future), dtype="float64")
-    quantiles = {float(k): np.asarray(v, dtype="float64") for k, v in
-                 model.predict_quantiles(X, X_future).items()}
+    quantiles = {
+        float(k): np.asarray(v, dtype="float64")
+        for k, v in model.predict_quantiles(X, X_future).items()
+    }
     proba = np.asarray(model.predict_proba_exceed(X, X_future), dtype="float64")
 
     # Reference predictions for the skill score.
@@ -135,9 +135,7 @@ def evaluate_model(
         prob: dict[str, float] = {}
         for tau in taus:
             prob[f"pinball_{tau:g}"] = metrics.pinball_loss(yt, quantiles[tau][:, j], tau)
-        prob["crps"] = metrics.crps_from_quantiles(
-            yt, {tau: quantiles[tau][:, j] for tau in taus}
-        )
+        prob["crps"] = metrics.crps_from_quantiles(yt, {tau: quantiles[tau][:, j] for tau in taus})
         if lower is not None and upper is not None and len(taus) >= 2:
             prob["picp"] = metrics.picp(yt, lower[:, j], upper[:, j])
             prob["picp_nominal"] = float(taus[-1] - taus[0])
@@ -257,15 +255,20 @@ def plot_forecast_vs_actual(
 
     n = min(max_points, y.shape[0])
     sl = slice(0, n)
-    fig, axes = plt.subplots(len(horizon_names), 1, figsize=(11, 2.6 * len(horizon_names)),
-                             sharex=True, squeeze=False)
+    fig, axes = plt.subplots(
+        len(horizon_names), 1, figsize=(11, 2.6 * len(horizon_names)), sharex=True, squeeze=False
+    )
     for j, h_name in enumerate(horizon_names):
         ax = axes[j, 0]
         ax.plot(np.asarray(y)[sl, j], color="black", lw=1.0, label="actual")
         ax.plot(y_pred[sl, j], color="tab:blue", lw=1.0, label="P50")
         if taus:
             ax.fill_between(
-                np.arange(n), lo[sl, j], hi[sl, j], color="tab:blue", alpha=0.2,
+                np.arange(n),
+                lo[sl, j],
+                hi[sl, j],
+                color="tab:blue",
+                alpha=0.2,
                 label=f"P{int(taus[0] * 100)}-P{int(taus[-1] * 100)}",
             )
         ax.axhline(LOG_HARSH, color="tab:red", ls="--", lw=0.8, label=f"{HARSH_PFU:g} pfu")

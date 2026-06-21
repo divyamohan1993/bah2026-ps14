@@ -98,11 +98,7 @@ def add_coupling_functions(df: pd.DataFrame) -> pd.DataFrame:
     vsw = out["vsw"].to_numpy(dtype="float64")
     bz = out["bz_gsm"].to_numpy(dtype="float64")
     bt = out["bt"].to_numpy(dtype="float64")
-    by = (
-        out["by_gsm"].to_numpy(dtype="float64")
-        if "by_gsm" in out.columns
-        else np.zeros_like(vsw)
-    )
+    by = out["by_gsm"].to_numpy(dtype="float64") if "by_gsm" in out.columns else np.zeros_like(vsw)
 
     # (Re)derive dynamic pressure from density/vsw when missing or all-NaN.
     if "pdyn" not in out.columns or out["pdyn"].isna().all():

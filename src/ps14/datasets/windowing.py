@@ -118,9 +118,7 @@ def make_supervised(
         xf = kf[t + 1 : t + 1 + decoder_steps]  # [H, F_kf], strictly future
         y_vals = target[t + offsets]  # [n_h], strictly future
 
-        if drop_if_nan and (
-            np.isnan(x).any() or np.isnan(y_vals).any() or np.isnan(xf).any()
-        ):
+        if drop_if_nan and (np.isnan(x).any() or np.isnan(y_vals).any() or np.isnan(xf).any()):
             continue
 
         x_list.append(x)

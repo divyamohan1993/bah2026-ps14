@@ -134,9 +134,7 @@ def create_app(config: Any | None = None, predictor: Predictor | None = None) ->
         """Most recent observed values + current alert flag (O(1) cache read)."""
         observed = dict(store.latest_observed)
         fc = store.latest_forecast
-        observed["alert"] = bool(
-            fc is not None and any(h.alert for h in fc.horizons.values())
-        )
+        observed["alert"] = bool(fc is not None and any(h.alert for h in fc.horizons.values()))
         return observed
 
     @app.get("/forecast")
@@ -172,9 +170,7 @@ def create_app(config: Any | None = None, predictor: Predictor | None = None) ->
                 status_code=422,
                 detail=f"feature vector has {features.size} values; expected {expected}",
             )
-        context = {
-            k: float(payload[k]) for k in ("mlt", "kp", "vsw", "doy") if k in payload
-        }
+        context = {k: float(payload[k]) for k in ("mlt", "kp", "vsw", "doy") if k in payload}
         result = predictor.predict(features, context=context)
         store.update_forecast(result)
         return result.model_dump()

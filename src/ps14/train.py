@@ -222,13 +222,14 @@ def train(
     )
     if train_idx.size == 0:
         raise ValueError("Chronological split produced an empty TRAIN set; check split/embargo.")
-    logger.info(
-        "Training %s on %d train / %d val windows", name, train_idx.size, val_idx.size
-    )
+    logger.info("Training %s on %d train / %d val windows", name, train_idx.size, val_idx.size)
 
-    Xtr, Xf_tr, ytr, ye_tr = wt.X[train_idx], wt.X_future[train_idx], wt.y[train_idx], wt.y_exceed[
-        train_idx
-    ]
+    Xtr, Xf_tr, ytr, ye_tr = (
+        wt.X[train_idx],
+        wt.X_future[train_idx],
+        wt.y[train_idx],
+        wt.y_exceed[train_idx],
+    )
     has_val = val_idx.size > 0
     if has_val:
         Xva, Xf_va, yva, ye_va = (

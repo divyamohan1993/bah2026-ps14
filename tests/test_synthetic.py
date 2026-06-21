@@ -198,9 +198,7 @@ def test_with_gaps_injects_nans_and_clean_frame_has_none():
 
 def test_pdyn_consistent_with_density_and_speed():
     df = synthetic.generate_dataset(_START, _END, seed=0, with_gaps=False, with_spikes=False)
-    expected = offline.dynamic_pressure(
-        df["density"].to_numpy(), df["vsw"].to_numpy()
-    )
+    expected = offline.dynamic_pressure(df["density"].to_numpy(), df["vsw"].to_numpy())
     np.testing.assert_allclose(df["pdyn"].to_numpy(), expected, rtol=1e-6)
 
 
