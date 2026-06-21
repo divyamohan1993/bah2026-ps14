@@ -73,6 +73,47 @@ def _import_lightning() -> Any:
     return pl
 
 
+def _decoder_target_trajectory(
+    last_obs: np.ndarray, y: np.ndarray, horizon_names: list[str], h: int
+) -> np.ndarray:
+    """Build a dense ``[N, H]`` decoder target that lands on the true horizons.
+
+    The window tensors only carry the target at the named horizon offsets (e.g. steps 8/72/
+    144). pytorch-forecasting computes the QuantileLoss over *all* ``H`` decoder steps, so a
+    flat "hold last value" fill on the (H - n_h) in-between steps would drown the few real
+    targets in a persistence signal. Instead we **piecewise-linearly interpolate** the target
+    through the anchor points ``(0 -> last_obs, off_1 -> y_1, ..., off_k -> y_k)`` (extending
+    the final segment flat past the last horizon). The named-horizon offsets still land exactly
+    on the true ``y`` values, so the read-off in :meth:`predict_quantiles` is unchanged; only
+    the supervisory signal on the intermediate steps becomes informative.
+    """
+    n = last_obs.shape[0]
+    offsets = [HORIZON_STEPS[name] for name in horizon_names]
+    # Anchor (time_idx within decoder, value array [N]) pairs, sorted by time.
+    anchors_t = [0, *offsets]
+    anchors_v = [last_obs, *[y[:, j] for j in range(len(horizon_names))]]
+    order = np.argsort(anchors_t)
+    anchors_t = [anchors_t[i] for i in order]
+    anchors_v = [anchors_v[i] for i in order]
+
+    steps = np.arange(1, h + 1, dtype="float32")  # decoder time_idx 1..H (0 is last encoder)
+    out = np.empty((n, h), dtype="float32")
+    for i in range(len(anchors_t) - 1):
+        t0, t1 = anchors_t[i], anchors_t[i + 1]
+        v0, v1 = anchors_v[i], anchors_v[i + 1]
+        seg = (steps > t0) & (steps <= t1)
+        if not seg.any():
+            continue
+        frac = (steps[seg] - t0) / max(t1 - t0, 1)  # [seg]
+        out[:, seg] = v0[:, None] + (v1 - v0)[:, None] * frac[None, :]
+    # Anything beyond the last anchor: hold the last horizon value flat.
+    last_t = anchors_t[-1]
+    beyond = steps > last_t
+    if beyond.any():
+        out[:, beyond] = anchors_v[-1][:, None]
+    return out
+
+
 def _quantile_sigma(q10: np.ndarray, q90: np.ndarray) -> np.ndarray:
     """Estimate a Gaussian sigma from the P10/P90 spread (z90 - z10 ~= 2.5631)."""
     from scipy.stats import norm
@@ -161,11 +202,12 @@ class TFTForecaster(Forecaster):
         total = lookback + h
         target_idx = self._feature_cols.index(self._target)
 
-        future_target = np.repeat(X[:, -1:, target_idx], h, axis=1).astype("float32")
+        last_obs = X[:, -1, target_idx]
+        future_target = np.repeat(last_obs[:, None], h, axis=1).astype("float32")
         if y is not None:
-            y = np.asarray(y, dtype="float32")
-            for j, h_name in enumerate(self.horizon_names):
-                future_target[:, HORIZON_STEPS[h_name] - 1] = y[:, j]
+            future_target = _decoder_target_trajectory(
+                last_obs, np.asarray(y, dtype="float32"), self.horizon_names, h
+            )
 
         frame: dict[str, np.ndarray] = {
             "series": np.repeat(np.arange(n), total).astype("int64"),
@@ -193,7 +235,7 @@ class TFTForecaster(Forecaster):
         _require_dl()
         import torch
         from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
-        from pytorch_forecasting.data import GroupNormalizer
+        from pytorch_forecasting.data import EncoderNormalizer
         from pytorch_forecasting.metrics import QuantileLoss
 
         pl = _import_lightning()
@@ -215,9 +257,12 @@ class TFTForecaster(Forecaster):
             group_ids=["series"],
             max_encoder_length=self.lookback,
             max_prediction_length=self.decoder_steps,
-            time_varying_unknown_reals=[self._target, *self._feature_cols],
+            time_varying_unknown_reals=list(self._feature_cols),
             time_varying_known_reals=list(self._known_future_cols),
-            target_normalizer=GroupNormalizer(groups=["series"]),
+            # EncoderNormalizer normalizes the target using ONLY the encoder span, so the
+            # scale is identical at train and predict time (a GroupNormalizer fit per-window
+            # would leak the decoder target into the scale and mismatch at inference).
+            target_normalizer=EncoderNormalizer(),
             allow_missing_timesteps=True,
             add_relative_time_idx=True,
             add_target_scales=True,

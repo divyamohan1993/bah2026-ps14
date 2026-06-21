@@ -2,15 +2,18 @@
 # Thin Make targets mirroring the `ps14` CLI. All commands run fully OFFLINE on
 # synthetic data by default; real downloaders are opt-in (`make fetch-data`).
 
-PY ?= python
+PY ?= python3
 CONFIG ?= config/default.yaml
+# Demo knobs (tractable CPU run); override e.g. `make demo DEMO_ARGS="--years 1 --no-tft"`.
+DEMO_ARGS ?= --years 1.5 --lookback 288 --stride 4 --max-windows 6000 --tft-epochs 4
 
-.PHONY: help setup synth-data fetch-data preprocess features train evaluate \
+.PHONY: help setup demo synth-data fetch-data preprocess features train evaluate \
         baseline serve dashboard test lint format clean
 
 help:
 	@echo "PS-14 targets:"
 	@echo "  setup       Install the package with all extras (editable)."
+	@echo "  demo        Run the full end-to-end pipeline on synthetic data + save reports/."
 	@echo "  synth-data  Generate physically-plausible synthetic CDFs + parquet (offline)."
 	@echo "  fetch-data  Download real GOES/OMNI/Wind data (needs [data] extra + network)."
 	@echo "  preprocess  Clean -> resample -> align -> transform into the merged 5-min frame."
@@ -27,6 +30,9 @@ help:
 
 setup:
 	$(PY) -m pip install -e ".[dl,data,serve,viz,dev]"
+
+demo:
+	$(PY) scripts/run_demo.py $(DEMO_ARGS)
 
 synth-data:
 	$(PY) -m ps14.cli synth-data --config $(CONFIG)

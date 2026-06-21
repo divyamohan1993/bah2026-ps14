@@ -52,8 +52,15 @@ MODEL_REGISTRY: dict[str, type[Forecaster]] = {
     "foundation": FoundationForecaster,
 }
 
-# Models that benefit from train-only standardization of the encoder tensor.
-_SCALE_MODELS = frozenset({"tft", "nhits"})
+# Models that benefit from an explicit train-only standardization of the [N, L, F] encoder
+# tensor applied *here*. The pytorch-forecasting models (tft, nhits) are deliberately NOT in
+# this set: they build a TimeSeriesDataSet whose GroupNormalizer/target-scales already
+# normalize the target (fit on the training series) and reconstruct the encoder-vs-decoder
+# target from the *same* scale. Pre-scaling their encoder tensor here would z-score the
+# encoder target while the decoder/future target stays in native log space, creating an
+# encoder/decoder discontinuity that corrupts training. So they receive the raw tensors and
+# normalize internally (still train-only, since the dataset is fit on the train split).
+_SCALE_MODELS: frozenset[str] = frozenset()
 
 
 def set_seeds(seed: int) -> None:

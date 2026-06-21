@@ -133,11 +133,14 @@ class NHiTSForecaster(Forecaster):
         total = lookback + h
         target_idx = self._feature_cols.index(self._target)
 
-        future_target = np.repeat(X[:, -1:, target_idx], h, axis=1).astype("float32")
+        from ps14.models.tft import _decoder_target_trajectory
+
+        last_obs = X[:, -1, target_idx]
+        future_target = np.repeat(last_obs[:, None], h, axis=1).astype("float32")
         if y is not None:
-            y = np.asarray(y, dtype="float32")
-            for j, h_name in enumerate(self.horizon_names):
-                future_target[:, HORIZON_STEPS[h_name] - 1] = y[:, j]
+            future_target = _decoder_target_trajectory(
+                last_obs, np.asarray(y, dtype="float32"), self.horizon_names, h
+            )
 
         frame: dict[str, np.ndarray] = {
             "series": np.repeat(np.arange(n), total).astype("int64"),
@@ -160,7 +163,7 @@ class NHiTSForecaster(Forecaster):
     def fit(self, X, X_future, y, y_exceed, *, val=None) -> NHiTSForecaster:  # noqa: D102
         _require_dl()
         from pytorch_forecasting import NHiTS, TimeSeriesDataSet
-        from pytorch_forecasting.data import GroupNormalizer
+        from pytorch_forecasting.data import EncoderNormalizer
         from pytorch_forecasting.metrics import QuantileLoss
 
         pl = _import_lightning()
@@ -180,7 +183,8 @@ class NHiTSForecaster(Forecaster):
             max_prediction_length=self.decoder_steps,
             time_varying_unknown_reals=[self._target],
             time_varying_known_reals=list(self._known_future_cols),
-            target_normalizer=GroupNormalizer(groups=["series"]),
+            # Encoder-only normalization: identical scale at train and predict (no decoder leak).
+            target_normalizer=EncoderNormalizer(),
             allow_missing_timesteps=True,
             add_relative_time_idx=False,
         )

@@ -404,6 +404,8 @@ class LightGBMForecaster(Forecaster):
         out = {
             tau: np.empty((n, len(self.horizon_names)), dtype="float32") for tau in self.quantiles
         }
+        if n == 0:  # empty split -> correctly-shaped empties (LGBM.predict rejects 0 rows)
+            return out
         for j, h_name in enumerate(self.horizon_names):
             preds = np.column_stack(
                 [self._models[h_name]["q"][tau].predict(Xf) for tau in self.quantiles]
@@ -418,6 +420,8 @@ class LightGBMForecaster(Forecaster):
         Xf = self._flatten(X, X_future)
         n = Xf.shape[0]
         out = np.empty((n, len(self.horizon_names)), dtype="float32")
+        if n == 0:  # empty split -> correctly-shaped empty (LGBM rejects 0 rows)
+            return out
         median = self.predict(X, X_future)
         for j, h_name in enumerate(self.horizon_names):
             clf = self._models[h_name]["clf"]
