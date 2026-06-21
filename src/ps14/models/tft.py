@@ -324,9 +324,19 @@ class TFTForecaster(Forecaster):
             raise RuntimeError("TFTForecaster is not fitted; call fit() first.")
 
     def _raw_quantiles(self, X: np.ndarray, X_future: np.ndarray) -> np.ndarray:
-        """Return the full decoder quantile predictions ``[N, H, n_quantiles]``."""
+        """Return the full decoder quantile predictions ``[N, H, n_quantiles]``.
+
+        Crucially, the returned array is **re-ordered back to the input window order**.
+        ``pytorch-forecasting`` returns one prediction per group ordered by the *sorted*
+        ``group_ids``; since we stringify the integer ``series`` id (so ``"100"`` sorts
+        before ``"2"``), the prediction rows come back in lexicographic — not positional —
+        order. We therefore request ``return_index=True`` and scatter each prediction back
+        to its originating window index, so the read-off in :meth:`predict_quantiles` aligns
+        with the ``X``/``y`` rows the evaluation harness uses.
+        """
         from pytorch_forecasting import TimeSeriesDataSet
 
+        n = int(np.asarray(X).shape[0])
         df = self._to_long_frame(np.asarray(X, dtype="float32"), X_future, None)
         ds = TimeSeriesDataSet.from_dataset(
             self._training_dataset, df, predict=True, stop_randomization=True
@@ -334,8 +344,22 @@ class TFTForecaster(Forecaster):
         loader = ds.to_dataloader(
             train=False, batch_size=int(self.params["batch_size"]), num_workers=0
         )
-        raw = self._model.predict(loader, mode="quantiles")
-        return raw.detach().cpu().numpy() if hasattr(raw, "detach") else np.asarray(raw)
+        out = self._model.predict(loader, mode="quantiles", return_index=True)
+        raw = out.output if hasattr(out, "output") else out[0]
+        index = out.index if hasattr(out, "index") else out[1]
+        raw = raw.detach().cpu().numpy() if hasattr(raw, "detach") else np.asarray(raw)
+
+        if raw.shape[0] != n:  # pragma: no cover - defensive; every window should predict once
+            raise RuntimeError(
+                f"TFT produced {raw.shape[0]} predictions for {n} windows; cannot align."
+            )
+        # Reorder predictions back to the original window order using the returned series id
+        # (an integer that equals the window index assigned in ``_to_long_frame``). The id is
+        # carried as a string category, so cast via float -> int to recover the position.
+        positions = index["series"].to_numpy().astype("int64")
+        ordered = np.empty_like(raw)
+        ordered[positions] = raw
+        return ordered
 
     def predict(self, X, X_future) -> np.ndarray:  # noqa: D102
         self._require_fitted()

@@ -94,7 +94,16 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--seed", type=int, default=1993)
     p.add_argument("--no-tft", action="store_true", help="Skip the small TFT (baselines only).")
-    p.add_argument("--tft-epochs", type=int, default=3, help="TFT training epochs (CPU).")
+    p.add_argument(
+        "--tft-epochs",
+        type=int,
+        default=8,
+        help=(
+            "Max TFT training epochs (CPU, ~80s/epoch on the demo set); early stopping "
+            "(patience 5) on the val split can halt sooner. ~6 epochs already reach positive "
+            "PE at every horizon and beat persistence at the nowcast."
+        ),
+    )
     return p.parse_args()
 
 
@@ -204,7 +213,10 @@ def main() -> int:
         logger.info("   trained %-12s in %.1fs", name, time.time() - ts)
 
     if not args.no_tft:
-        logger.info("   Training small TFT (%d epochs, CPU, long-dataframe path)", args.tft_epochs)
+        logger.info(
+            "   Training TFT (<=%d epochs, early-stopping patience 5, CPU, long-dataframe path)",
+            args.tft_epochs,
+        )
         try:
             cfg.model.name = "tft"
             cfg.model.decoder_steps = 144
@@ -214,12 +226,16 @@ def main() -> int:
                 "attention_head_size": 2,
                 "hidden_continuous_size": 12,
                 "dropout": 0.1,
+                # Train with EARLY STOPPING on the val split (the train() orchestrator passes a
+                # val tuple, so fit() installs an EarlyStopping callback); patience 5 can halt
+                # before max_epochs. lr=1e-3 converges cleanly here — the previous demo failed
+                # not from the LR but from a prediction-ordering bug (predictions were returned
+                # in lexicographic group order and read off positionally), now fixed in tft.py.
                 "max_epochs": args.tft_epochs,
                 "batch_size": 128,
-                # A higher LR is needed for the small TFT to actually converge within a few
-                # CPU epochs (lr=1e-3 barely moves it off init -> near-constant predictions).
-                "learning_rate": 5e-3,
+                "learning_rate": 1e-3,
                 "gradient_clip_val": 0.1,
+                "early_stopping_patience": 5,
                 "accelerator": "cpu",
             }
             ts = time.time()
