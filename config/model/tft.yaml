@@ -1,0 +1,32 @@
+# Temporal Fusion Transformer (dual-head) hyperparameters. Merged over model: in
+# default.yaml. See ARCHITECTURE.md (e.1). Primary model.
+
+name: tft
+arch:
+  hidden_size: 128
+  lstm_layers: 2
+  attention_head_size: 4
+  hidden_continuous_size: 64
+  dropout: 0.2
+  output_quantiles: [0.1, 0.5, 0.9]
+heads:
+  regression: quantile           # pinball loss over output_quantiles
+  exceedance: focal_bce          # P(flux >= 1000 pfu) per horizon
+  focal_gamma: 2.0               # focal loss focusing parameter for rare events
+  exceedance_weight: 1.0         # lambda balancing the two heads
+loss:
+  regression_output_weighting: false  # inverse-frequency weighting on storm peaks
+train:
+  max_epochs: 50
+  batch_size: 128
+  learning_rate: 0.001
+  gradient_clip_val: 0.1
+  early_stopping_patience: 8
+  accelerator: auto              # cpu|gpu|auto
+  precision: 32
+  deterministic: true
+ensemble:
+  n_seeds: 1                     # set 3-5 for a deep ensemble
+conformal:
+  enabled: false
+  calibration_fraction: 0.1

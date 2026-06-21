@@ -1,0 +1,22 @@
+# N-HiTS (backup A) hyperparameters. Fast, simple, strong direct multi-horizon.
+# See ARCHITECTURE.md (e.3). TiDE shares this block via `variant: tide`.
+
+name: nhits
+variant: nhits                   # nhits | tide
+arch:
+  n_blocks: [1, 1, 1]
+  mlp_units: [[512, 512], [512, 512], [512, 512]]
+  n_pool_kernel_size: [8, 4, 1]
+  n_freq_downsample: [24, 12, 1]
+  dropout: 0.1
+heads:
+  quantiles: [0.1, 0.5, 0.9]     # quantile loss for uncertainty
+  exceedance: focal_bce
+  focal_gamma: 2.0
+train:
+  max_epochs: 50
+  batch_size: 256
+  learning_rate: 0.001
+  early_stopping_patience: 8
+  accelerator: auto
+  deterministic: true
