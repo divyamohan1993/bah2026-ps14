@@ -37,7 +37,11 @@ GOES_LEGACY_DATASETS: dict[str, str] = {
 OMNI_DRIVERS_DATASET: str = "OMNI_HRO_1MIN"
 OMNI_DRIVERS_DATASET_5MIN: str = "OMNI_HRO_5MIN"
 
-#: Canonical OMNI HRO variable names for the driver block (R5 §3.3).
+#: Canonical OMNI HRO (1-min) driver variable names (R5 §3.3). NOTE: ``KP`` and ``F10_INDEX``
+#: are NOT present in the 1-minute ``OMNI_HRO_1MIN`` product (they live in the hourly
+#: ``OMNI2_H0_MRG1HR`` / ``OMNI_HRO2`` products); including them makes cdasws reject the whole
+#: request (HTTP 400). They are therefore omitted here and merged from the hourly product
+#: separately when needed. All names below are verified valid against the live OMNI_HRO_1MIN.
 OMNI_DRIVER_VARIABLES: list[str] = [
     "flow_speed",  # Vsw (km/s)
     "proton_density",  # N (cm^-3)
@@ -47,9 +51,9 @@ OMNI_DRIVER_VARIABLES: list[str] = [
     "AE_INDEX",  # AE (nT)
     "AL_INDEX",  # AL (nT)
     "SYM_H",  # SYM-H (nT)
-    "KP",  # planetary K-index (x10 in OMNI)
-    "F10_INDEX",  # F10.7 (sfu)
 ]
+#: Hourly-only OMNI indices (planetary K-index x10, F10.7) — fetch from OMNI2_H0_MRG1HR.
+OMNI_HOURLY_INDEX_VARIABLES: list[str] = ["KP_INDEX", "F10_INDEX"]
 
 
 def fetch_cdaweb(
